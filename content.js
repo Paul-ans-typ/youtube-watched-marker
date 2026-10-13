@@ -92,27 +92,43 @@
     return badge;
   }
 
-  /** Reject title links (no image) and card-level wrappers (contain a link). */
-  function isThumbnailLink(link) {
-    if (!link.querySelector('img')) return false;
-    // A wrapper anchor around the whole card also points at /watch and contains
-    // an image, so it would get its own badge drawn against the entire card.
-    if (link.querySelector('a[href*="/watch?v="]')) return false;
-    return true;
+  /** Does this element itself match a thumbnail-link selector? Never throws. */
+  function isThumbnailMatch(el) {
+    try {
+      return el.matches(THUMBNAIL_SELECTOR);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function containsThumbnailMatch(el) {
+    try {
+      return Boolean(el.querySelector(THUMBNAIL_SELECTOR));
+    } catch (_) {
+      return Boolean(el.querySelector('a[href*="/watch?v="]'));
+    }
   }
 
   function markThumbnail(link) {
-    if (!isThumbnailLink(link)) return false;
+    // YouTube nests a /watch anchor inside a#thumbnail for some overlays. Only
+    // the *innermost* match gets marked — a wrapper would otherwise grow its own
+    // badge, drawn against the whole card, which is how a video ended up with
+    // two or three.
+    if (containsThumbnailMatch(link)) return false;
+
+    // Ignore title links: they point at /watch but hold no image and sit
+    // outside any thumbnail container.
+    const knownThumb = link.id === 'thumbnail' || Boolean(link.closest(THUMBNAIL_CONTAINER));
+    if (!knownThumb && !link.querySelector('img')) return false;
+
     const id = extractVideoId(link.getAttribute('href'));
     if (!id || !watchedSet.has(id)) return false;
 
     const container = link.closest(THUMBNAIL_CONTAINER) || link;
 
-    // Exactly one badge per thumbnail. Drop any extras (e.g. left behind by a
-    // previous, broader selector) instead of adding another.
-    const badges = container.querySelectorAll(`.${BADGE_CLASS}`);
-    if (badges.length > 0) {
-      for (let i = 1; i < badges.length; i += 1) badges[i].remove();
+    // Exactly one badge per thumbnail, and re-add it if YouTube re-rendered the
+    // thumbnail and dropped it.
+    if (container.querySelector(`.${BADGE_CLASS}`)) {
       link.setAttribute(MARK_ATTR, 'true');
       return false;
     }
@@ -126,9 +142,22 @@
   function scan(root) {
     if (watchedSet.size === 0 || !shouldMark()) return;
     const scopeNode = root && root.querySelectorAll ? root : document;
+
+    let links;
+    try {
+      links = scopeNode.querySelectorAll(THUMBNAIL_SELECTOR);
+    } catch (err) {
+      console.error('[watched-marker] thumbnail selector failed', err);
+      return;
+    }
+
     let marked = 0;
-    for (const link of scopeNode.querySelectorAll(THUMBNAIL_SELECTOR)) {
-      if (markThumbnail(link)) marked += 1;
+    for (const link of links) {
+      try {
+        if (markThumbnail(link)) marked += 1;
+      } catch (err) {
+        console.error('[watched-marker] failed to mark', link, err);
+      }
     }
     if (marked > 0) console.debug(`[watched-marker] marked ${marked} thumbnail(s)`);
   }
@@ -350,7 +379,16 @@
     refreshMarks();
     recordIfAlreadyPlaying();
 
-    console.info(`[watched-marker] active — ${watchedSet.size} watched id(s), scope "${scope}", marking ${shouldMark() ? 'ON' : 'OFF'}`);
+    let onPage = 0;
+    try {
+      onPage = document.querySelectorAll(THUMBNAIL_SELECTOR).length;
+    } catch (_) {
+      onPage = -1;
+    }
+    console.info(
+      `[watched-marker] active — ${watchedSet.size} watched id(s), scope "${scope}", `
+      + `marking ${shouldMark() ? 'ON' : 'OFF'}, ${onPage} thumbnail link(s) found on this page`
+    );
 
     startObserver();
     document.addEventListener('play', onVideoPlay, true);
