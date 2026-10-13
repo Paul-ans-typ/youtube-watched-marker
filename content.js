@@ -194,7 +194,22 @@
     if (!id || !VIDEO_ID.test(id) || watchedSet.has(id)) return;
 
     watchedSet.add(id);
-    api.storage.local.set({ [IDS_KEY]: Array.from(watchedSet) }).catch(() => {});
+    persistWatched();
+  }
+
+  /**
+   * Re-read and merge before writing, so a large import happening in another
+   * page can never be clobbered by this script's in-memory set.
+   */
+  async function persistWatched() {
+    try {
+      const stored = await api.storage.local.get(IDS_KEY);
+      const merged = new Set(Array.isArray(stored[IDS_KEY]) ? stored[IDS_KEY] : []);
+      for (const id of watchedSet) merged.add(id);
+      await api.storage.local.set({ [IDS_KEY]: Array.from(merged) });
+    } catch (_) {
+      // Storage may be full or unavailable; tracking is best-effort.
+    }
   }
 
   /* -------------------------------------------------------------- lifecycle */

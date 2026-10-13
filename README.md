@@ -60,12 +60,17 @@ Either file works — import whichever you have.
 ### 2. Import it
 
 1. **Open YouTube in a tab while signed in to the account you exported.** The
-   popup binds the history to the account that is signed in.
-2. Click the extension icon in the toolbar.
-3. Choose `watch-history.json` (or `watch-history.html`) in the file picker.
+   import binds the history to the account that is signed in.
+2. Click the extension icon, then **Import watch history…**
 
-The popup shows the account the data belongs to, the account currently signed
-in, and how many watched IDs are stored.
+   This opens the importer in a new tab. It has to be a page rather than the
+   popup: opening a native file picker closes a browser-action popup (Firefox,
+   Zen, and occasionally Chrome), which would cancel the import mid-way.
+3. Choose `watch-history.json` (or `watch-history.html`), or drag & drop it onto
+   the drop zone.
+
+The page shows progress while reading, then how many IDs were found and how many
+were new.
 
 ### 3. Choose the scope
 
@@ -94,7 +99,9 @@ matches the imported one (in the default scope).
 | File | Role |
 | --- | --- |
 | `manifest.json` | MV3 manifest. Only the `storage` permission and a `*://*.youtube.com/*` host permission. |
-| `popup.html` / `popup.css` / `popup.js` | Import UI, parsing, merge, account binding, and scope toggle. |
+| `popup.html` / `popup.css` / `popup.js` | Control-panel popup: status, account binding, and scope toggle. |
+| `import.html` / `import.js` | The importer, opened in a tab so the file picker cannot close it. |
+| `history.js` | Shared parsing + storage helpers used by the popup and the importer. |
 | `account-bridge.js` | Runs in the page's **main world** to read the signed-in account from `window.ytcfg`. |
 | `content.js` | Marks thumbnails and tracks new videos on YouTube. |
 | `content.css` | Dimming and badge styling. |

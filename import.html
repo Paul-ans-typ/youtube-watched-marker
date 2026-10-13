@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Import watch history — YouTube Watched Marker</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body class="page">
+  <header>
+    <h1>Import watch history</h1>
+    <p class="subtitle">
+      Select your Google Takeout history file. Everything is processed locally —
+      nothing is uploaded.
+    </p>
+  </header>
+
+  <section class="status">
+    <span class="count" id="count">0</span>
+    <span class="label">watched videos stored</span>
+  </section>
+
+  <div class="row">
+    <span class="row-label">Data belongs to</span>
+    <span class="row-value" id="boundLabel">—</span>
+  </div>
+
+  <label class="dropzone" id="dropzone">
+    <input type="file" id="file" accept=".json,.html">
+    <span class="dropzone-title">Choose watch-history.json / .html</span>
+    <span class="dropzone-hint">or drag &amp; drop the file here</span>
+  </label>
+
+  <div class="progress" id="progress" hidden>
+    <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+    <span class="progress-text" id="progressText"></span>
+  </div>
+
+  <p class="message" id="message" role="status" aria-live="polite"></p>
+
+  <details class="help">
+    <summary>Where do I get this file?</summary>
+    <ol>
+      <li>Go to <a href="https://takeout.google.com" target="_blank" rel="noreferrer">takeout.google.com</a>.</li>
+      <li>Deselect all, then tick <strong>YouTube and YouTube Music</strong> → <strong>history</strong>.</li>
+      <li>Export, download and unzip the archive.</li>
+      <li>Find <code>watch-history.json</code> (or <code>watch-history.html</code>) in
+        <code>Takeout/YouTube and YouTube Music/history/</code>.</li>
+    </ol>
+  </details>
+
+  <script type="module" src="import.js"></script>
+</body>
+</html>

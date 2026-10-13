@@ -40,15 +40,11 @@
     </fieldset>
   </section>
 
-  <label class="file-input">
-    <input type="file" id="file" accept=".json,.html">
-    <span>Import watch-history.json / .html</span>
-  </label>
-
+  <button type="button" id="openImport" class="primary">Import watch history…</button>
   <button type="button" id="clear" class="danger" disabled>Clear database</button>
 
   <p class="message" id="message" role="status" aria-live="polite"></p>
 
-  <script src="popup.js"></script>
+  <script type="module" src="popup.js"></script>
 </body>
 </html>
