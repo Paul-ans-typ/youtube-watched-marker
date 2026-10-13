@@ -1,26 +1,40 @@
-/* Dim the whole card of an already-watched video. */
-.yt-watched-dim {
-  opacity: 0.45;
+/*
+ * Dim only the thumbnail image, never the badge. Dimming the whole card also
+ * dimmed the badge (opacity multiplies down the tree), which made the "Watched"
+ * marker nearly invisible.
+ */
+.yt-watched-thumb img {
+  opacity: 0.35;
+  filter: grayscale(0.5);
 }
 
-/* Give the thumbnail a positioning context for the badge. */
-a#thumbnail.yt-watched-thumb {
+.yt-watched-thumb {
   position: relative;
-  display: block;
 }
 
-/* "WATCHED" badge pinned to the top-left of the thumbnail. */
+/* Unmistakable "WATCHED" badge pinned to the top-left of the thumbnail. */
 .yt-watched-badge {
   position: absolute;
-  top: 6px;
-  left: 6px;
-  z-index: 20;
-  padding: 3px 6px;
-  border-radius: 3px;
+  top: 8px;
+  left: 8px;
+  z-index: 100;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 4px;
   background: #cc0000;
   color: #ffffff;
-  font: 600 10px/1.2 Roboto, Arial, sans-serif;
+  font: 700 11px/1 Roboto, Arial, sans-serif;
   letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
   pointer-events: none;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
+}
+
+.yt-watched-badge::before {
+  content: "\2713";
+  font-size: 12px;
+  line-height: 1;
 }

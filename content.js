@@ -1,9 +1,9 @@
 'use strict';
 
 /*
- * Content script (isolated world). Loads the imported watch history, dims and
- * badges watched thumbnails, records newly watched videos, and keeps all of it
- * scoped to the account the history was imported for.
+ * Content script (isolated world). Marks watched thumbnails, records videos only
+ * once playback actually starts, and keeps everything scoped to the account the
+ * history was imported for.
  *
  * The signed-in account is read from the page's world through account-bridge.js.
  */
@@ -22,20 +22,31 @@
   const POPUP_GET_ACCOUNT = 'ytwm:getAccount';
 
   const THUMBNAIL_SELECTOR = 'a#thumbnail[href*="/watch?v="]';
-  const CARD_SELECTOR = [
+  const THUMBNAIL_CONTAINER = 'ytd-thumbnail, ytd-playlist-thumbnail';
+
+  // Feed cards. Used to recognise the muted hover-preview players, which must
+  // never count as "watching" a video.
+  const FEED_SELECTOR = [
     'ytd-rich-item-renderer',
     'ytd-video-renderer',
     'ytd-compact-video-renderer',
     'ytd-grid-video-renderer',
+    'ytd-playlist-video-renderer',
+    'ytd-playlist-panel-video-renderer',
+    'ytd-reel-item-renderer',
+    'ytd-rich-grid-media',
+    'ytd-thumbnail',
+    'ytd-miniplayer',
+    'ytd-reel-video-renderer',
   ].join(', ');
 
-  const DIM_CLASS = 'yt-watched-dim';
   const THUMB_CLASS = 'yt-watched-thumb';
   const BADGE_CLASS = 'yt-watched-badge';
   const MARK_ATTR = 'data-custom-watched';
 
   const VIDEO_ID_IN_URL = /[?&]v=([a-zA-Z0-9_-]{11})/;
   const VIDEO_ID = /^[a-zA-Z0-9_-]{11}$/;
+  const SHORTS_ID = /^\/shorts\/([a-zA-Z0-9_-]{11})/;
 
   let watchedSet = new Set();
   let boundAccount = null;   // account the imported history belongs to
@@ -59,31 +70,38 @@
   function buildBadge() {
     const badge = document.createElement('span');
     badge.className = BADGE_CLASS;
-    badge.textContent = 'WATCHED';
+    badge.textContent = 'Watched';
+    badge.setAttribute('aria-hidden', 'true');
     return badge;
   }
 
   function markThumbnail(link) {
-    // Already processed — never inject a second badge.
-    if (link.getAttribute(MARK_ATTR) === 'true') return;
-
     const id = extractVideoId(link.getAttribute('href'));
     if (!id || !watchedSet.has(id)) return;
 
-    const card = link.closest(CARD_SELECTOR);
-    if (card) card.classList.add(DIM_CLASS);
+    const container = link.closest(THUMBNAIL_CONTAINER) || link;
 
-    link.classList.add(THUMB_CLASS);
-    link.appendChild(buildBadge());
+    // YouTube re-renders thumbnails in place, which can wipe the badge while the
+    // anchor survives. Re-add it instead of trusting the marker attribute.
+    if (container.querySelector(`.${BADGE_CLASS}`)) {
+      link.setAttribute(MARK_ATTR, 'true');
+      return false;
+    }
+
+    container.classList.add(THUMB_CLASS);
+    container.appendChild(buildBadge());
     link.setAttribute(MARK_ATTR, 'true');
+    return true;
   }
 
   function scan(root) {
     if (watchedSet.size === 0 || !shouldMark()) return;
     const scopeNode = root && root.querySelectorAll ? root : document;
+    let marked = 0;
     for (const link of scopeNode.querySelectorAll(THUMBNAIL_SELECTOR)) {
-      markThumbnail(link);
+      if (markThumbnail(link)) marked += 1;
     }
+    if (marked > 0) console.debug(`[watched-marker] marked ${marked} thumbnail(s)`);
   }
 
   function requestScan(root) {
@@ -107,15 +125,9 @@
   }
 
   function clearMarks() {
-    for (const link of document.querySelectorAll(`[${MARK_ATTR}="true"]`)) {
-      link.removeAttribute(MARK_ATTR);
-      link.classList.remove(THUMB_CLASS);
-      const badge = link.querySelector(`:scope > .${BADGE_CLASS}`);
-      if (badge) badge.remove();
-    }
-    for (const card of document.querySelectorAll(`.${DIM_CLASS}`)) {
-      card.classList.remove(DIM_CLASS);
-    }
+    for (const badge of document.querySelectorAll(`.${BADGE_CLASS}`)) badge.remove();
+    for (const el of document.querySelectorAll(`.${THUMB_CLASS}`)) el.classList.remove(THUMB_CLASS);
+    for (const el of document.querySelectorAll(`[${MARK_ATTR}]`)) el.removeAttribute(MARK_ATTR);
   }
 
   /* --------------------------------------------------------------- accounts */
@@ -138,6 +150,7 @@
     const enabled = shouldMark();
     if (enabled !== marksEnabled) {
       marksEnabled = enabled;
+      if (!enabled) console.debug('[watched-marker] marking disabled: signed-in account differs from the imported one');
       clearMarks();
     }
     if (enabled) requestScan(null);
@@ -186,15 +199,12 @@
 
   /* --------------------------------------------------------------- tracking */
 
-  /** Record the video currently open on /watch so it is marked next time. */
-  function trackCurrentVideo() {
-    if (location.pathname !== '/watch') return;
-    if (!shouldMark()) return;
-    const id = new URLSearchParams(location.search).get('v');
-    if (!id || !VIDEO_ID.test(id) || watchedSet.has(id)) return;
-
-    watchedSet.add(id);
-    persistWatched();
+  /** The video ID of the page we're on, for /watch and /shorts URLs. */
+  function currentVideoId() {
+    const fromQuery = new URLSearchParams(location.search).get('v');
+    if (fromQuery && VIDEO_ID.test(fromQuery)) return fromQuery;
+    const shorts = location.pathname.match(SHORTS_ID);
+    return shorts ? shorts[1] : null;
   }
 
   /**
@@ -212,6 +222,33 @@
     }
   }
 
+  function recordWatched(id) {
+    if (!id || watchedSet.has(id) || !VIDEO_ID.test(id)) return;
+    watchedSet.add(id);
+    console.debug('[watched-marker] recorded', id);
+    persistWatched();
+  }
+
+  /**
+   * Only real playback counts — navigating to a /watch URL or hovering a feed
+   * thumbnail does not. `play` doesn't bubble, so this is a capture listener.
+   */
+  function onVideoPlay(event) {
+    const video = event.target;
+    if (!(video instanceof HTMLVideoElement)) return;
+    if (video.closest(FEED_SELECTOR)) return; // hover previews / miniplayer
+    if (!shouldMark()) return;
+    recordWatched(currentVideoId());
+  }
+
+  /** Catch the case where playback already started before this script loaded. */
+  function recordIfAlreadyPlaying() {
+    if (!shouldMark()) return;
+    const video = document.querySelector('#movie_player video, #shorts-player video, video.html5-main-video');
+    if (!video || video.paused || video.ended) return;
+    recordWatched(currentVideoId());
+  }
+
   /* -------------------------------------------------------------- lifecycle */
 
   function applyStoredIds(ids) {
@@ -221,7 +258,7 @@
   async function onNavigate() {
     await refreshAccount();
     refreshMarks();
-    trackCurrentVideo();
+    recordIfAlreadyPlaying();
   }
 
   function startObserver() {
@@ -242,9 +279,10 @@
 
     await refreshAccount();
     refreshMarks();
-    trackCurrentVideo();
+    recordIfAlreadyPlaying();
 
     startObserver();
+    document.addEventListener('play', onVideoPlay, true);
     window.addEventListener('yt-navigate-finish', onNavigate);
 
     // The popup asks for the live account when it opens.
@@ -256,9 +294,10 @@
       return undefined;
     });
 
-    // Reflect imports / scope / binding changes made from the popup live.
+    // Reflect imports / scope / binding changes made elsewhere, live.
     api.storage.onChanged.addListener((changes, area) => {
       if (area !== 'local') return;
+      if (!changes[IDS_KEY] && !changes[BOUND_KEY] && !changes[SCOPE_KEY]) return;
       if (changes[IDS_KEY]) applyStoredIds(changes[IDS_KEY].newValue);
       if (changes[BOUND_KEY]) boundAccount = changes[BOUND_KEY].newValue || null;
       if (changes[SCOPE_KEY]) scope = changes[SCOPE_KEY].newValue === 'all' ? 'all' : 'single';

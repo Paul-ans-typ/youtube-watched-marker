@@ -85,12 +85,15 @@ YouTube at once:
 
 ### 4. Browse YouTube
 
-Open YouTube and previously watched videos appear dimmed with a **WATCHED**
-badge. This covers home, subscriptions, search, and channel feeds, and keeps
-working as you scroll (infinite loading) and navigate between pages.
+Open YouTube and previously watched videos show a red **WATCHED** badge on the
+thumbnail, with the thumbnail itself dimmed. This covers home, subscriptions,
+search, and channel feeds, and keeps working as you scroll (infinite loading)
+and navigate between pages.
 
-Videos you watch are recorded automatically — but only while the active account
-matches the imported one (in the default scope).
+A video is only recorded **once playback actually starts** — clicking through to
+a video and navigating away without playing it does not count it. Recording
+still honours the scope: it only happens while the active account matches the
+imported one (in the default scope).
 
 **Clear database** removes the stored IDs and the account binding.
 
@@ -103,7 +106,7 @@ matches the imported one (in the default scope).
 | `import.html` / `import.js` | The importer, opened in a tab so the file picker cannot close it. |
 | `history.js` | Shared parsing + storage helpers used by the popup and the importer. |
 | `account-bridge.js` | Runs in the page's **main world** to read the signed-in account from `window.ytcfg`. |
-| `content.js` | Marks thumbnails and tracks new videos on YouTube. |
+| `content.js` | Marks thumbnails and records videos once playback starts on YouTube. |
 | `content.css` | Dimming and badge styling. |
 
 Parsing details:

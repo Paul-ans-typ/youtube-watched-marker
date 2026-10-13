@@ -141,6 +141,17 @@ button.danger {
   color: var(--muted);
 }
 
+.hint {
+  margin: 0 0 8px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.hint strong {
+  color: var(--accent);
+}
+
 .message.error {
   color: var(--accent);
 }
