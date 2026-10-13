@@ -86,8 +86,12 @@ YouTube at once:
 ### 4. Browse YouTube
 
 Open YouTube and previously watched videos on your feed, recommendations,
-subscriptions, search results and channel pages show a red **WATCHED** badge,
-with the thumbnail image turned grayscale/dark and a red bar along the bottom.
+subscriptions, search results and channel pages show a single red **WATCHED**
+badge in the top-right corner of the thumbnail, with the thumbnail image dimmed.
+
+Nothing is ever drawn over the video player itself, so the badge cannot follow
+the player into fullscreen or get in the way while you watch.
+
 This keeps working as you scroll (infinite loading) and navigate between pages.
 
 A video is only recorded **once playback actually starts** — clicking through to

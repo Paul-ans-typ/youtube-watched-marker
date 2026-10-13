@@ -1,10 +1,12 @@
 'use strict';
 
 /*
- * Content script (isolated world). Marks watched thumbnails, shows a badge on
- * the video you are currently looking at, records a video only after it has
- * actually been playing for a while, and keeps everything scoped to the account
- * the history was imported for.
+ * Content script (isolated world). Marks watched thumbnails in feeds and
+ * recommendations, records a video only after it has actually been playing for
+ * a while, and keeps everything scoped to the account the history was imported
+ * for.
+ *
+ * Nothing is drawn over the video player itself.
  *
  * The signed-in account is read from the page's world through account-bridge.js.
  */
@@ -23,16 +25,15 @@
   const POPUP_GET_ACCOUNT = 'ytwm:getAccount';
 
   // Thumbnail links, across feed, search, subscriptions, channel and sidebar
-  // layouts. The `:has(img)` fallback covers any container naming we haven't
-  // seen; title links never contain an image, so they are not matched.
+  // layouts. `:has(> img)` catches layouts we have not seen; isThumbnailLink()
+  // rejects card-level wrapper anchors so a video is never marked twice.
   const THUMBNAIL_SELECTOR = [
     'a#thumbnail[href*="/watch?v="]',
     'ytd-thumbnail a[href*="/watch?v="]',
     'ytd-playlist-thumbnail a[href*="/watch?v="]',
-    'a[href*="/watch?v="]:has(img)',
+    'a[href*="/watch?v="]:has(> img)',
   ].join(', ');
   const THUMBNAIL_CONTAINER = 'ytd-thumbnail, ytd-playlist-thumbnail, .yt-lockup-view-model__content-image';
-  const PLAYER_SELECTOR = '#movie_player, #shorts-player, ytd-player, #player';
 
   // Feed cards. Used to recognise the muted hover-preview players, which must
   // never count as "watching" a video.
@@ -53,8 +54,6 @@
   const THUMB_CLASS = 'yt-watched-thumb';
   const BADGE_CLASS = 'yt-watched-badge';
   const MARK_ATTR = 'data-custom-watched';
-  const INDICATOR_ID = 'yt-watched-indicator';
-  const PLAYER_CLASS = 'yt-watched-player';
 
   const VIDEO_ID_IN_URL = /[?&]v=([a-zA-Z0-9_-]{11})/;
   const VIDEO_ID = /^[a-zA-Z0-9_-]{11}$/;
@@ -69,17 +68,13 @@
   let currentAccount = null; // account signed in right now
   let marksEnabled = null;   // last applied marking decision
 
-  let indicatorState = null; // 'watched' | 'unwatched' | null (absent)
-  let indicatorHost = null;
-
   let playTimer = null;
   let pendingId = null;
 
-  // Coalesce bursts of mutations / navigations into one frame of work.
+  // Coalesce bursts of mutations / navigations into one scan per frame.
   let frameScheduled = false;
   let scanEverything = false;
   const scanRoots = new Set();
-  let indicatorRequested = false;
 
   /* ---------------------------------------------------------------- marking */
 
@@ -97,18 +92,27 @@
     return badge;
   }
 
+  /** Reject title links (no image) and card-level wrappers (contain a link). */
+  function isThumbnailLink(link) {
+    if (!link.querySelector('img')) return false;
+    // A wrapper anchor around the whole card also points at /watch and contains
+    // an image, so it would get its own badge drawn against the entire card.
+    if (link.querySelector('a[href*="/watch?v="]')) return false;
+    return true;
+  }
+
   function markThumbnail(link) {
+    if (!isThumbnailLink(link)) return false;
     const id = extractVideoId(link.getAttribute('href'));
     if (!id || !watchedSet.has(id)) return false;
 
-    // If we matched a title link by accident, ignore it: only image links count.
-    if (!link.querySelector('img') && !link.closest(THUMBNAIL_CONTAINER)) return false;
-
     const container = link.closest(THUMBNAIL_CONTAINER) || link;
 
-    // YouTube re-renders thumbnails in place, which can wipe the badge while the
-    // anchor survives. Re-add it instead of trusting the marker attribute.
-    if (container.querySelector(`.${BADGE_CLASS}`)) {
+    // Exactly one badge per thumbnail. Drop any extras (e.g. left behind by a
+    // previous, broader selector) instead of adding another.
+    const badges = container.querySelectorAll(`.${BADGE_CLASS}`);
+    if (badges.length > 0) {
+      for (let i = 1; i < badges.length; i += 1) badges[i].remove();
       link.setAttribute(MARK_ATTR, 'true');
       return false;
     }
@@ -135,58 +139,6 @@
     for (const el of document.querySelectorAll(`[${MARK_ATTR}]`)) el.removeAttribute(MARK_ATTR);
   }
 
-  /* ------------------------------------------- badge on the current video */
-
-  function playerHost() {
-    if (location.pathname !== '/watch' && !SHORTS_ID.test(location.pathname)) return null;
-    return document.querySelector(PLAYER_SELECTOR);
-  }
-
-  function removeIndicator() {
-    const el = document.getElementById(INDICATOR_ID);
-    if (el) el.remove();
-    for (const player of document.querySelectorAll(`.${PLAYER_CLASS}`)) {
-      player.classList.remove(PLAYER_CLASS);
-    }
-    indicatorState = null;
-    indicatorHost = null;
-  }
-
-  /** Show "Watched" / "Not watched" over the video you are looking at. */
-  function updateWatchIndicator() {
-    const host = playerHost();
-    const id = host ? currentVideoId() : null;
-
-    if (!id || !host || !shouldMark()) {
-      if (indicatorState !== null) removeIndicator();
-      return;
-    }
-
-    const watched = watchedSet.has(id);
-    const next = watched ? 'watched' : 'unwatched';
-    const existing = document.getElementById(INDICATOR_ID);
-
-    if (next === indicatorState && host === indicatorHost && existing && existing.parentElement === host) {
-      return;
-    }
-
-    let el = existing;
-    if (!el || el.parentElement !== host) {
-      if (el) el.remove();
-      el = document.createElement('div');
-      el.id = INDICATOR_ID;
-      el.setAttribute('aria-hidden', 'true');
-      host.appendChild(el);
-    }
-
-    el.className = `yt-watched-indicator ${watched ? 'is-watched' : 'is-new'}`;
-    el.textContent = watched ? 'Watched' : 'Not watched';
-    host.classList.toggle(PLAYER_CLASS, watched);
-
-    indicatorState = next;
-    indicatorHost = host;
-  }
-
   /* --------------------------------------------------------------- accounts */
 
   /**
@@ -211,7 +163,6 @@
       clearMarks();
     }
     if (enabled) requestScan(null);
-    requestIndicator();
   }
 
   /** Ask the main-world bridge for the signed-in account. */
@@ -285,7 +236,6 @@
     watchedSet.add(id);
     console.debug('[watched-marker] recorded', id);
     persistWatched();
-    requestIndicator();
   }
 
   function cancelPendingPlay() {
@@ -356,11 +306,6 @@
     scheduleFrame();
   }
 
-  function requestIndicator() {
-    indicatorRequested = true;
-    scheduleFrame();
-  }
-
   function runFrame() {
     frameScheduled = false;
 
@@ -371,11 +316,6 @@
     } else if (scanRoots.size > 0) {
       for (const root of scanRoots) scan(root);
       scanRoots.clear();
-    }
-
-    if (indicatorRequested) {
-      indicatorRequested = false;
-      updateWatchIndicator();
     }
   }
 
@@ -397,9 +337,6 @@
           if (node.nodeType === Node.ELEMENT_NODE) requestScan(node);
         }
       }
-      // The player is created asynchronously after navigation, so re-check the
-      // indicator on DOM churn (updateWatchIndicator is a no-op when unchanged).
-      requestIndicator();
     }).observe(document.body, { childList: true, subtree: true });
   }
 
