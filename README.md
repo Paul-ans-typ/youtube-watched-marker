@@ -29,8 +29,8 @@ Zen and Firefox both refuse **unsigned** add-ons permanently, and Zen ships with
 It stays loaded until you close the browser, so you must re-load it after a
 restart. If Zen or Firefox asks to grant site access for `youtube.com`, allow it.
 
-Requires Firefox 128+ (the `world: "MAIN"` content script used for account
-detection is supported there).
+Requires Firefox 142+ (`world: "MAIN"` content scripts need 128, but the
+`data_collection_permissions` declaration needs 142).
 
 ## Install — Firefox / Zen (permanent)
 
@@ -154,7 +154,7 @@ key plus a display label.
 - Local storage is capped (~10 MB in Chrome, ~5 MB in Firefox), which comfortably
   holds hundreds of thousands of IDs (each ID is 11 characters). Very large
   histories can approach the Firefox limit.
-- One source runs on both Chromium 111+ and Firefox 128+; API calls go through
+- One source runs on both Chromium 111+ and Firefox 142+; API calls go through
   `browser ?? chrome` so promise-based calls work on both.
 - The popup's live "Signed in as" read needs a loaded YouTube tab; otherwise the
   last-seen account is shown. The scope binding itself does not depend on it.
