@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>YouTube Watched Marker</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <h1>Watched Marker</h1>
+    <p class="subtitle">Marks previously watched videos on YouTube.</p>
+  </header>
+
+  <section class="status">
+    <span class="count" id="count">0</span>
+    <span class="label">watched videos stored</span>
+  </section>
+
+  <label class="file-input">
+    <input type="file" id="file" accept=".json,.html">
+    <span>Import watch-history.json / .html</span>
+  </label>
+
+  <button type="button" id="clear" class="danger" disabled>Clear database</button>
+
+  <p class="message" id="message" role="status" aria-live="polite"></p>
+
+  <script src="popup.js"></script>
+</body>
+</html>

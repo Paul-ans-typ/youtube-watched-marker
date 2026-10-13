@@ -1,0 +1,9 @@
+# OS / editor junk
+.DS_Store
+Thumbs.db
+*.swp
+
+# Takeout archives you might drop in while testing
+watch-history.json
+watch-history.html
+Takeout/
