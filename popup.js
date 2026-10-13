@@ -3,12 +3,15 @@
 /*
  * Popup: imports a Google Takeout watch history (JSON or HTML), extracts the
  * 11-character YouTube video IDs, merges them with whatever is already stored,
- * and persists the result in chrome.storage.local under "watchedIds".
+ * and persists the result in extension local storage under "watchedIds".
  *
  * It also binds that history to the Google account signed in at import time and
  * lets the user choose whether marking applies to that account only or to every
  * account signed in to YouTube.
  */
+
+// Firefox exposes `browser`; Chrome uses `chrome`. Both return promises.
+const api = globalThis.browser ?? globalThis.chrome;
 
 const IDS_KEY = 'watchedIds';
 const BOUND_KEY = 'account';
@@ -45,7 +48,7 @@ function setMessage(text, isError = false) {
 }
 
 async function getStoredIds() {
-  const stored = await chrome.storage.local.get(IDS_KEY);
+  const stored = await api.storage.local.get(IDS_KEY);
   return Array.isArray(stored[IDS_KEY]) ? stored[IDS_KEY] : [];
 }
 
@@ -55,15 +58,15 @@ async function getStoredIds() {
  */
 async function detectActiveAccount() {
   try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const [tab] = await api.tabs.query({ active: true, currentWindow: true });
     if (tab && tab.id != null) {
-      const response = await chrome.tabs.sendMessage(tab.id, { type: 'ytwm:getAccount' });
+      const response = await api.tabs.sendMessage(tab.id, { type: 'ytwm:getAccount' });
       if (response && response.account) return response.account;
     }
   } catch (_) {
     // No YouTube content script on this tab — fall through to storage.
   }
-  const stored = await chrome.storage.local.get(REPORT_KEY);
+  const stored = await api.storage.local.get(REPORT_KEY);
   return stored[REPORT_KEY] || null;
 }
 
@@ -74,8 +77,8 @@ function accountName(account) {
 async function refresh() {
   const [ids, boundStored, scopeStored, active] = await Promise.all([
     getStoredIds(),
-    chrome.storage.local.get(BOUND_KEY),
-    chrome.storage.local.get(SCOPE_KEY),
+    api.storage.local.get(BOUND_KEY),
+    api.storage.local.get(SCOPE_KEY),
     detectActiveAccount(),
   ]);
 
@@ -156,11 +159,11 @@ async function onFileSelected(event) {
     for (const id of imported) merged.add(id);
     const added = merged.size - existing.length;
 
-    await chrome.storage.local.set({ [IDS_KEY]: Array.from(merged) });
+    await api.storage.local.set({ [IDS_KEY]: Array.from(merged) });
 
     // Bind the history to the account that is signed in right now.
     if (activeAccount && activeAccount.key) {
-      await chrome.storage.local.set({ [BOUND_KEY]: activeAccount });
+      await api.storage.local.set({ [BOUND_KEY]: activeAccount });
     }
 
     await refresh();
@@ -181,7 +184,7 @@ async function onFileSelected(event) {
 
 async function onScopeChange() {
   const scope = els.scopeAll.checked ? 'all' : 'single';
-  await chrome.storage.local.set({ [SCOPE_KEY]: scope });
+  await api.storage.local.set({ [SCOPE_KEY]: scope });
   setMessage(
     scope === 'all'
       ? 'Marking watched videos in every signed-in account.'
@@ -191,7 +194,7 @@ async function onScopeChange() {
 
 async function onClear() {
   els.clear.disabled = true;
-  await chrome.storage.local.remove([IDS_KEY, BOUND_KEY]);
+  await api.storage.local.remove([IDS_KEY, BOUND_KEY]);
   await refresh();
   setMessage('Database cleared.');
 }

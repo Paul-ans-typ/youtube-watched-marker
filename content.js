@@ -9,6 +9,9 @@
  */
 
 (() => {
+  // Firefox exposes `browser`; Chrome uses `chrome`. Both return promises.
+  const api = globalThis.browser ?? globalThis.chrome;
+
   const IDS_KEY = 'watchedIds';
   const BOUND_KEY = 'account';
   const SCOPE_KEY = 'scope';
@@ -162,12 +165,12 @@
 
   /** Cache the account for the popup, writing only when it actually changes. */
   function reportCurrentAccount(account) {
-    chrome.storage.local
+    api.storage.local
       .get(REPORT_KEY)
       .then((stored) => {
         const previous = stored[REPORT_KEY];
         if (previous && previous.key === account.key && previous.label === account.label) return;
-        return chrome.storage.local.set({ [REPORT_KEY]: account });
+        return api.storage.local.set({ [REPORT_KEY]: account });
       })
       .catch(() => {});
   }
@@ -191,7 +194,7 @@
     if (!id || !VIDEO_ID.test(id) || watchedSet.has(id)) return;
 
     watchedSet.add(id);
-    chrome.storage.local.set({ [IDS_KEY]: Array.from(watchedSet) }).catch(() => {});
+    api.storage.local.set({ [IDS_KEY]: Array.from(watchedSet) }).catch(() => {});
   }
 
   /* -------------------------------------------------------------- lifecycle */
@@ -217,7 +220,7 @@
   }
 
   async function init() {
-    const stored = await chrome.storage.local.get([IDS_KEY, BOUND_KEY, SCOPE_KEY]);
+    const stored = await api.storage.local.get([IDS_KEY, BOUND_KEY, SCOPE_KEY]);
     applyStoredIds(stored[IDS_KEY]);
     boundAccount = stored[BOUND_KEY] || null;
     scope = stored[SCOPE_KEY] === 'all' ? 'all' : 'single';
@@ -230,7 +233,7 @@
     window.addEventListener('yt-navigate-finish', onNavigate);
 
     // The popup asks for the live account when it opens.
-    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    api.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (message && message.type === POPUP_GET_ACCOUNT) {
         requestAccount().then((account) => sendResponse({ account }));
         return true; // keep the channel open for the async reply
@@ -239,7 +242,7 @@
     });
 
     // Reflect imports / scope / binding changes made from the popup live.
-    chrome.storage.onChanged.addListener((changes, area) => {
+    api.storage.onChanged.addListener((changes, area) => {
       if (area !== 'local') return;
       if (changes[IDS_KEY]) applyStoredIds(changes[IDS_KEY].newValue);
       if (changes[BOUND_KEY]) boundAccount = changes[BOUND_KEY].newValue || null;

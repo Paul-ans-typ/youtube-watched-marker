@@ -8,14 +8,42 @@ It works entirely offline: you import your own Google Takeout watch history, and
 the extension stores the video IDs locally in `chrome.storage.local`. Nothing is
 sent anywhere.
 
-## Install (unpacked)
+## Install — Chromium (Chrome, Edge, Brave)
 
 1. Open `chrome://extensions` (or `edge://extensions`, `brave://extensions`).
 2. Enable **Developer mode**.
 3. Click **Load unpacked** and select this folder.
 
-Requires Chromium 111+ (the account detection uses a `world: "MAIN"` content
-script).
+Requires Chromium 111+ (account detection uses a `world: "MAIN"` content script).
+
+## Install — Firefox / Zen (temporary)
+
+Zen and Firefox both refuse **unsigned** add-ons permanently, and Zen ships with
+`xpinstall.signatures.required = true`, so the unpacked folder is loaded as a
+*temporary* add-on:
+
+1. Go to `about:debugging#/runtime/this-firefox`.
+2. Click **Load Temporary Add-on…**.
+3. Select `manifest.json` inside this folder.
+
+It stays loaded until you close the browser, so you must re-load it after a
+restart. If Zen or Firefox asks to grant site access for `youtube.com`, allow it.
+
+Requires Firefox 128+ (the `world: "MAIN"` content script used for account
+detection is supported there).
+
+## Install — Firefox / Zen (permanent)
+
+Because the temporary add-on disappears on restart, a permanent install needs a
+**signed** add-on:
+
+- Sign it for self-distribution (free, unlisted, no public review) with
+  `web-ext sign --channel unlisted` using your
+  [AMO API keys](https://addons.mozilla.org/developers/addon/api/key/), then
+  install the resulting `.xpi`; **or**
+- use **Firefox Developer Edition / Nightly**, where setting
+  `xpinstall.signatures.required = false` in `about:config` allows unsigned
+  installs. Plain Firefox and Zen ignore that pref.
 
 ## Usage
 
@@ -123,6 +151,10 @@ key plus a display label.
 
 ## Notes
 
-- `chrome.storage.local` is typically capped at ~10 MB, which comfortably holds
-  hundreds of thousands of IDs (each ID is 11 characters).
-- Built and tested against Chromium-based browsers (Chrome, Edge, Brave).
+- Local storage is capped (~10 MB in Chrome, ~5 MB in Firefox), which comfortably
+  holds hundreds of thousands of IDs (each ID is 11 characters). Very large
+  histories can approach the Firefox limit.
+- One source runs on both Chromium 111+ and Firefox 128+; API calls go through
+  `browser ?? chrome` so promise-based calls work on both.
+- The popup's live "Signed in as" read needs a loaded YouTube tab; otherwise the
+  last-seen account is shown. The scope binding itself does not depend on it.
