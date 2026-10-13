@@ -1,13 +1,22 @@
 'use strict';
 
 /*
- * Content script: dims YouTube cards whose video ID appears in the imported
- * watch history, stamps a "WATCHED" badge on the thumbnail, and records the
- * video currently being watched as a single-page navigation happens.
+ * Content script (isolated world). Loads the imported watch history, dims and
+ * badges watched thumbnails, records newly watched videos, and keeps all of it
+ * scoped to the account the history was imported for.
+ *
+ * The signed-in account is read from the page's world through account-bridge.js.
  */
 
 (() => {
-  const STORAGE_KEY = 'watchedIds';
+  const IDS_KEY = 'watchedIds';
+  const BOUND_KEY = 'account';
+  const SCOPE_KEY = 'scope';
+  const REPORT_KEY = 'currentAccount';
+
+  const BRIDGE_REQUEST = 'YTWM_GET_ACCOUNT';
+  const BRIDGE_RESPONSE = 'YTWM_ACCOUNT';
+  const POPUP_GET_ACCOUNT = 'ytwm:getAccount';
 
   const THUMBNAIL_SELECTOR = 'a#thumbnail[href*="/watch?v="]';
   const CARD_SELECTOR = [
@@ -26,11 +35,17 @@
   const VIDEO_ID = /^[a-zA-Z0-9_-]{11}$/;
 
   let watchedSet = new Set();
+  let boundAccount = null;   // account the imported history belongs to
+  let scope = 'single';      // 'single' | 'all'
+  let currentAccount = null; // account signed in right now
+  let marksEnabled = null;   // last applied marking decision
 
   // Coalesce bursts of mutations / navigations into one scan per frame.
   let scanScheduled = false;
   let scanEverything = false;
   const scanRoots = new Set();
+
+  /* ---------------------------------------------------------------- marking */
 
   function extractVideoId(href) {
     if (!href) return null;
@@ -61,9 +76,9 @@
   }
 
   function scan(root) {
-    if (watchedSet.size === 0) return;
-    const scope = root && root.querySelectorAll ? root : document;
-    for (const link of scope.querySelectorAll(THUMBNAIL_SELECTOR)) {
+    if (watchedSet.size === 0 || !shouldMark()) return;
+    const scopeNode = root && root.querySelectorAll ? root : document;
+    for (const link of scopeNode.querySelectorAll(THUMBNAIL_SELECTOR)) {
       markThumbnail(link);
     }
   }
@@ -100,22 +115,94 @@
     }
   }
 
+  /* --------------------------------------------------------------- accounts */
+
+  /**
+   * Should watched videos be marked in the account that's signed in right now?
+   *   - scope "all": always.
+   *   - scope "single": only when it matches the imported account. If we cannot
+   *     tell (nothing imported yet, or account undetectable) we mark rather
+   *     than silently showing nothing.
+   */
+  function shouldMark() {
+    if (scope === 'all') return true;
+    if (!boundAccount || !boundAccount.key) return true;
+    if (!currentAccount || !currentAccount.key) return true;
+    return currentAccount.key === boundAccount.key;
+  }
+
+  function refreshMarks() {
+    const enabled = shouldMark();
+    if (enabled !== marksEnabled) {
+      marksEnabled = enabled;
+      clearMarks();
+    }
+    if (enabled) requestScan(null);
+  }
+
+  /** Ask the main-world bridge for the signed-in account. */
+  function requestAccount() {
+    return new Promise((resolve) => {
+      const onMessage = (event) => {
+        if (event.source !== window) return;
+        const data = event.data;
+        if (!data || data.type !== BRIDGE_RESPONSE) return;
+        window.removeEventListener('message', onMessage);
+        clearTimeout(timer);
+        resolve(data.account || null);
+      };
+      const timer = setTimeout(() => {
+        window.removeEventListener('message', onMessage);
+        resolve(null);
+      }, 1000);
+      window.addEventListener('message', onMessage);
+      window.postMessage({ type: BRIDGE_REQUEST }, '*');
+    });
+  }
+
+  /** Cache the account for the popup, writing only when it actually changes. */
+  function reportCurrentAccount(account) {
+    chrome.storage.local
+      .get(REPORT_KEY)
+      .then((stored) => {
+        const previous = stored[REPORT_KEY];
+        if (previous && previous.key === account.key && previous.label === account.label) return;
+        return chrome.storage.local.set({ [REPORT_KEY]: account });
+      })
+      .catch(() => {});
+  }
+
+  async function refreshAccount() {
+    const account = await requestAccount();
+    if (!account) return;
+    const changed = !currentAccount || currentAccount.key !== account.key;
+    currentAccount = account;
+    reportCurrentAccount(account);
+    if (changed) refreshMarks();
+  }
+
+  /* --------------------------------------------------------------- tracking */
+
   /** Record the video currently open on /watch so it is marked next time. */
   function trackCurrentVideo() {
     if (location.pathname !== '/watch') return;
+    if (!shouldMark()) return;
     const id = new URLSearchParams(location.search).get('v');
     if (!id || !VIDEO_ID.test(id) || watchedSet.has(id)) return;
 
     watchedSet.add(id);
-    chrome.storage.local.set({ [STORAGE_KEY]: Array.from(watchedSet) }).catch(() => {});
+    chrome.storage.local.set({ [IDS_KEY]: Array.from(watchedSet) }).catch(() => {});
   }
+
+  /* -------------------------------------------------------------- lifecycle */
 
   function applyStoredIds(ids) {
     watchedSet = new Set(Array.isArray(ids) ? ids : []);
   }
 
-  function onNavigate() {
-    requestScan(null);
+  async function onNavigate() {
+    await refreshAccount();
+    refreshMarks();
     trackCurrentVideo();
   }
 
@@ -130,20 +217,35 @@
   }
 
   async function init() {
-    const stored = await chrome.storage.local.get(STORAGE_KEY);
-    applyStoredIds(stored[STORAGE_KEY]);
+    const stored = await chrome.storage.local.get([IDS_KEY, BOUND_KEY, SCOPE_KEY]);
+    applyStoredIds(stored[IDS_KEY]);
+    boundAccount = stored[BOUND_KEY] || null;
+    scope = stored[SCOPE_KEY] === 'all' ? 'all' : 'single';
 
-    scan(document);
+    await refreshAccount();
+    refreshMarks();
     trackCurrentVideo();
+
     startObserver();
     window.addEventListener('yt-navigate-finish', onNavigate);
 
-    // Reflect imports/clears made from the popup without a page reload.
+    // The popup asks for the live account when it opens.
+    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+      if (message && message.type === POPUP_GET_ACCOUNT) {
+        requestAccount().then((account) => sendResponse({ account }));
+        return true; // keep the channel open for the async reply
+      }
+      return undefined;
+    });
+
+    // Reflect imports / scope / binding changes made from the popup live.
     chrome.storage.onChanged.addListener((changes, area) => {
-      if (area !== 'local' || !changes[STORAGE_KEY]) return;
-      applyStoredIds(changes[STORAGE_KEY].newValue);
-      clearMarks();
-      requestScan(null);
+      if (area !== 'local') return;
+      if (changes[IDS_KEY]) applyStoredIds(changes[IDS_KEY].newValue);
+      if (changes[BOUND_KEY]) boundAccount = changes[BOUND_KEY].newValue || null;
+      if (changes[SCOPE_KEY]) scope = changes[SCOPE_KEY].newValue === 'all' ? 'all' : 'single';
+      marksEnabled = null; // force a clear + re-evaluation
+      refreshMarks();
     });
   }
 

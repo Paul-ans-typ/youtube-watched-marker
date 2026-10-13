@@ -34,7 +34,7 @@ h1 {
   display: flex;
   align-items: baseline;
   gap: 6px;
-  margin: 16px 0;
+  margin: 16px 0 12px;
   padding: 12px;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -48,6 +48,62 @@ h1 {
 .label {
   font-size: 12px;
   color: var(--muted);
+}
+
+.account {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.row-label {
+  color: var(--muted);
+}
+
+.row-value {
+  max-width: 170px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row-value.mismatch {
+  color: var(--accent);
+}
+
+.scope {
+  margin: 10px 0 0;
+  padding: 10px 0 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+
+.scope legend {
+  padding: 0 0 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.scope label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  cursor: pointer;
+}
+
+.scope input {
+  margin: 0;
+  accent-color: var(--accent);
 }
 
 .file-input {

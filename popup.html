@@ -17,6 +17,29 @@
     <span class="label">watched videos stored</span>
   </section>
 
+  <section class="account">
+    <div class="row">
+      <span class="row-label">Data belongs to</span>
+      <span class="row-value" id="boundLabel" title="">—</span>
+    </div>
+    <div class="row">
+      <span class="row-label">Signed in as</span>
+      <span class="row-value" id="currentLabel" title="">—</span>
+    </div>
+
+    <fieldset class="scope">
+      <legend>Mark watched videos in</legend>
+      <label>
+        <input type="radio" name="scope" id="scopeSingle" value="single">
+        <span>This account only</span>
+      </label>
+      <label>
+        <input type="radio" name="scope" id="scopeAll" value="all">
+        <span>All signed-in accounts</span>
+      </label>
+    </fieldset>
+  </section>
+
   <label class="file-input">
     <input type="file" id="file" accept=".json,.html">
     <span>Import watch-history.json / .html</span>
