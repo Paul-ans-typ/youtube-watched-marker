@@ -85,10 +85,10 @@ YouTube at once:
 
 ### 4. Browse YouTube
 
-Open YouTube and previously watched videos show a red **WATCHED** badge on the
-thumbnail, with the thumbnail itself dimmed. This covers home, subscriptions,
-search, and channel feeds, and keeps working as you scroll (infinite loading)
-and navigate between pages.
+Open YouTube and previously watched videos on your feed, recommendations,
+subscriptions, search results and channel pages show a red **WATCHED** badge,
+with the thumbnail image turned grayscale/dark and a red bar along the bottom.
+This keeps working as you scroll (infinite loading) and navigate between pages.
 
 A video is only recorded **once playback actually starts** — clicking through to
 a video and navigating away without playing it does not count it. Recording

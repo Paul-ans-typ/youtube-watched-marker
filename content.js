@@ -1,9 +1,10 @@
 'use strict';
 
 /*
- * Content script (isolated world). Marks watched thumbnails, records videos only
- * once playback actually starts, and keeps everything scoped to the account the
- * history was imported for.
+ * Content script (isolated world). Marks watched thumbnails, shows a badge on
+ * the video you are currently looking at, records a video only after it has
+ * actually been playing for a while, and keeps everything scoped to the account
+ * the history was imported for.
  *
  * The signed-in account is read from the page's world through account-bridge.js.
  */
@@ -21,8 +22,17 @@
   const BRIDGE_RESPONSE = 'YTWM_ACCOUNT';
   const POPUP_GET_ACCOUNT = 'ytwm:getAccount';
 
-  const THUMBNAIL_SELECTOR = 'a#thumbnail[href*="/watch?v="]';
-  const THUMBNAIL_CONTAINER = 'ytd-thumbnail, ytd-playlist-thumbnail';
+  // Thumbnail links, across feed, search, subscriptions, channel and sidebar
+  // layouts. The `:has(img)` fallback covers any container naming we haven't
+  // seen; title links never contain an image, so they are not matched.
+  const THUMBNAIL_SELECTOR = [
+    'a#thumbnail[href*="/watch?v="]',
+    'ytd-thumbnail a[href*="/watch?v="]',
+    'ytd-playlist-thumbnail a[href*="/watch?v="]',
+    'a[href*="/watch?v="]:has(img)',
+  ].join(', ');
+  const THUMBNAIL_CONTAINER = 'ytd-thumbnail, ytd-playlist-thumbnail, .yt-lockup-view-model__content-image';
+  const PLAYER_SELECTOR = '#movie_player, #shorts-player, ytd-player, #player';
 
   // Feed cards. Used to recognise the muted hover-preview players, which must
   // never count as "watching" a video.
@@ -43,10 +53,15 @@
   const THUMB_CLASS = 'yt-watched-thumb';
   const BADGE_CLASS = 'yt-watched-badge';
   const MARK_ATTR = 'data-custom-watched';
+  const INDICATOR_ID = 'yt-watched-indicator';
+  const PLAYER_CLASS = 'yt-watched-player';
 
   const VIDEO_ID_IN_URL = /[?&]v=([a-zA-Z0-9_-]{11})/;
   const VIDEO_ID = /^[a-zA-Z0-9_-]{11}$/;
   const SHORTS_ID = /^\/shorts\/([a-zA-Z0-9_-]{11})/;
+
+  // A video only counts as watched after this much continuous playback.
+  const PLAY_THRESHOLD_MS = 5000;
 
   let watchedSet = new Set();
   let boundAccount = null;   // account the imported history belongs to
@@ -54,10 +69,17 @@
   let currentAccount = null; // account signed in right now
   let marksEnabled = null;   // last applied marking decision
 
-  // Coalesce bursts of mutations / navigations into one scan per frame.
-  let scanScheduled = false;
+  let indicatorState = null; // 'watched' | 'unwatched' | null (absent)
+  let indicatorHost = null;
+
+  let playTimer = null;
+  let pendingId = null;
+
+  // Coalesce bursts of mutations / navigations into one frame of work.
+  let frameScheduled = false;
   let scanEverything = false;
   const scanRoots = new Set();
+  let indicatorRequested = false;
 
   /* ---------------------------------------------------------------- marking */
 
@@ -77,7 +99,10 @@
 
   function markThumbnail(link) {
     const id = extractVideoId(link.getAttribute('href'));
-    if (!id || !watchedSet.has(id)) return;
+    if (!id || !watchedSet.has(id)) return false;
+
+    // If we matched a title link by accident, ignore it: only image links count.
+    if (!link.querySelector('img') && !link.closest(THUMBNAIL_CONTAINER)) return false;
 
     const container = link.closest(THUMBNAIL_CONTAINER) || link;
 
@@ -104,30 +129,62 @@
     if (marked > 0) console.debug(`[watched-marker] marked ${marked} thumbnail(s)`);
   }
 
-  function requestScan(root) {
-    if (root) scanRoots.add(root);
-    else scanEverything = true;
-    if (scanScheduled) return;
-    scanScheduled = true;
-    requestAnimationFrame(runScheduledScans);
-  }
-
-  function runScheduledScans() {
-    scanScheduled = false;
-    if (scanEverything) {
-      scanEverything = false;
-      scanRoots.clear();
-      scan(document);
-      return;
-    }
-    for (const root of scanRoots) scan(root);
-    scanRoots.clear();
-  }
-
   function clearMarks() {
     for (const badge of document.querySelectorAll(`.${BADGE_CLASS}`)) badge.remove();
     for (const el of document.querySelectorAll(`.${THUMB_CLASS}`)) el.classList.remove(THUMB_CLASS);
     for (const el of document.querySelectorAll(`[${MARK_ATTR}]`)) el.removeAttribute(MARK_ATTR);
+  }
+
+  /* ------------------------------------------- badge on the current video */
+
+  function playerHost() {
+    if (location.pathname !== '/watch' && !SHORTS_ID.test(location.pathname)) return null;
+    return document.querySelector(PLAYER_SELECTOR);
+  }
+
+  function removeIndicator() {
+    const el = document.getElementById(INDICATOR_ID);
+    if (el) el.remove();
+    for (const player of document.querySelectorAll(`.${PLAYER_CLASS}`)) {
+      player.classList.remove(PLAYER_CLASS);
+    }
+    indicatorState = null;
+    indicatorHost = null;
+  }
+
+  /** Show "Watched" / "Not watched" over the video you are looking at. */
+  function updateWatchIndicator() {
+    const host = playerHost();
+    const id = host ? currentVideoId() : null;
+
+    if (!id || !host || !shouldMark()) {
+      if (indicatorState !== null) removeIndicator();
+      return;
+    }
+
+    const watched = watchedSet.has(id);
+    const next = watched ? 'watched' : 'unwatched';
+    const existing = document.getElementById(INDICATOR_ID);
+
+    if (next === indicatorState && host === indicatorHost && existing && existing.parentElement === host) {
+      return;
+    }
+
+    let el = existing;
+    if (!el || el.parentElement !== host) {
+      if (el) el.remove();
+      el = document.createElement('div');
+      el.id = INDICATOR_ID;
+      el.setAttribute('aria-hidden', 'true');
+      host.appendChild(el);
+    }
+
+    el.className = `yt-watched-indicator ${watched ? 'is-watched' : 'is-new'}`;
+    el.textContent = watched ? 'Watched' : 'Not watched';
+    host.classList.toggle(PLAYER_CLASS, watched);
+
+    indicatorState = next;
+    indicatorHost = host;
   }
 
   /* --------------------------------------------------------------- accounts */
@@ -154,6 +211,7 @@
       clearMarks();
     }
     if (enabled) requestScan(null);
+    requestIndicator();
   }
 
   /** Ask the main-world bridge for the signed-in account. */
@@ -227,35 +285,106 @@
     watchedSet.add(id);
     console.debug('[watched-marker] recorded', id);
     persistWatched();
+    requestIndicator();
+  }
+
+  function cancelPendingPlay() {
+    if (playTimer) clearTimeout(playTimer);
+    playTimer = null;
+    pendingId = null;
   }
 
   /**
-   * Only real playback counts — navigating to a /watch URL or hovering a feed
-   * thumbnail does not. `play` doesn't bubble, so this is a capture listener.
+   * A video counts as watched only after PLAY_THRESHOLD_MS of continuous
+   * playback. Navigating to a /watch URL, or hovering a feed thumbnail whose
+   * muted preview player fires `play`, does not count.
    */
+  function maybeTrack(video) {
+    if (!shouldMark()) return;
+    const id = currentVideoId();
+    if (!id || watchedSet.has(id)) return;
+    if (playTimer && pendingId === id) return; // already counting this one
+
+    cancelPendingPlay();
+    pendingId = id;
+    playTimer = setTimeout(() => {
+      playTimer = null;
+      const stillOnSameVideo = pendingId === id;
+      pendingId = null;
+      if (!stillOnSameVideo) return;
+      if (video.paused || video.ended) return;   // paused before the threshold
+      if (currentVideoId() !== id) return;       // navigated away
+      recordWatched(id);
+    }, PLAY_THRESHOLD_MS);
+  }
+
+  // `play`/`pause` do not bubble, so these are capture listeners.
   function onVideoPlay(event) {
     const video = event.target;
     if (!(video instanceof HTMLVideoElement)) return;
     if (video.closest(FEED_SELECTOR)) return; // hover previews / miniplayer
-    if (!shouldMark()) return;
-    recordWatched(currentVideoId());
+    maybeTrack(video);
   }
 
-  /** Catch the case where playback already started before this script loaded. */
+  function onVideoPause(event) {
+    const video = event.target;
+    if (!(video instanceof HTMLVideoElement)) return;
+    if (video.closest(FEED_SELECTOR)) return;
+    cancelPendingPlay();
+  }
+
+  /** Catch the case where playback already passed the threshold on load. */
   function recordIfAlreadyPlaying() {
     if (!shouldMark()) return;
     const video = document.querySelector('#movie_player video, #shorts-player video, video.html5-main-video');
     if (!video || video.paused || video.ended) return;
+    if (video.currentTime < PLAY_THRESHOLD_MS / 1000) return;
     recordWatched(currentVideoId());
   }
 
   /* -------------------------------------------------------------- lifecycle */
+
+  function scheduleFrame() {
+    if (frameScheduled) return;
+    frameScheduled = true;
+    requestAnimationFrame(runFrame);
+  }
+
+  function requestScan(root) {
+    if (root) scanRoots.add(root);
+    else scanEverything = true;
+    scheduleFrame();
+  }
+
+  function requestIndicator() {
+    indicatorRequested = true;
+    scheduleFrame();
+  }
+
+  function runFrame() {
+    frameScheduled = false;
+
+    if (scanEverything) {
+      scanEverything = false;
+      scanRoots.clear();
+      scan(document);
+    } else if (scanRoots.size > 0) {
+      for (const root of scanRoots) scan(root);
+      scanRoots.clear();
+    }
+
+    if (indicatorRequested) {
+      indicatorRequested = false;
+      updateWatchIndicator();
+    }
+  }
 
   function applyStoredIds(ids) {
     watchedSet = new Set(Array.isArray(ids) ? ids : []);
   }
 
   async function onNavigate() {
+    cancelPendingPlay();
     await refreshAccount();
     refreshMarks();
     recordIfAlreadyPlaying();
@@ -268,6 +397,9 @@
           if (node.nodeType === Node.ELEMENT_NODE) requestScan(node);
         }
       }
+      // The player is created asynchronously after navigation, so re-check the
+      // indicator on DOM churn (updateWatchIndicator is a no-op when unchanged).
+      requestIndicator();
     }).observe(document.body, { childList: true, subtree: true });
   }
 
@@ -281,8 +413,11 @@
     refreshMarks();
     recordIfAlreadyPlaying();
 
+    console.info(`[watched-marker] active — ${watchedSet.size} watched id(s), scope "${scope}", marking ${shouldMark() ? 'ON' : 'OFF'}`);
+
     startObserver();
     document.addEventListener('play', onVideoPlay, true);
+    document.addEventListener('pause', onVideoPause, true);
     window.addEventListener('yt-navigate-finish', onNavigate);
 
     // The popup asks for the live account when it opens.
