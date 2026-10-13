@@ -117,6 +117,8 @@ imported one (in the default scope).
 | `popup.html` / `popup.css` / `popup.js` | Control-panel popup: status, account binding, and scope toggle. |
 | `import.html` / `import.js` | The importer, opened in a tab so the file picker cannot close it. |
 | `history.js` | Shared parsing + storage helpers used by the popup and the importer. |
+| `icons/` | 16/32/48/128 px icons. Regenerate with `node tools/make-icons.mjs`. |
+| `tools/make-icons.mjs` | Renders the icon set from scratch (Node + zlib only, no image libraries). |
 | `account-bridge.js` | Runs in the page's **main world** to read the signed-in account from `window.ytcfg`. |
 | `content.js` | Marks thumbnails and records videos once playback starts on YouTube. |
 | `content.css` | Dimming and badge styling. |
