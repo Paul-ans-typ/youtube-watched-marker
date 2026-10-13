@@ -398,9 +398,16 @@
       `[watched-marker] active — ${watchedSet.size} watched id(s), scope "${scope}", `
       + `marking ${shouldMark() ? 'ON' : 'OFF'}, ${cards} card(s) and ${links} /watch link(s) on this page`
     );
+    if (cards === 0) {
+      console.warn('[watched-marker] no known video cards on this page — see README for the diagnostic snippet');
+    }
   }
 
   async function init() {
+    // Marker so a console snippet can tell whether this script is even running
+    // in the tab (a stale tab after reloading the add-on has no marker).
+    document.documentElement.setAttribute('data-watched-marker', 'active');
+
     const stored = await api.storage.local.get([IDS_KEY, BOUND_KEY, SCOPE_KEY]);
     applyStoredIds(stored[IDS_KEY]);
     boundAccount = stored[BOUND_KEY] || null;
