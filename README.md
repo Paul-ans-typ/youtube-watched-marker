@@ -182,3 +182,8 @@ key plus a display label.
   `browser ?? chrome` so promise-based calls work on both.
 - The popup's live "Signed in as" read needs a loaded YouTube tab; otherwise the
   last-seen account is shown. The scope binding itself does not depend on it.
+
+## License
+
+[MIT](LICENSE). Use it, fork it, ship it, sell it — just keep the copyright
+notice.
