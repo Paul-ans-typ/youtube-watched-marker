@@ -8,6 +8,13 @@
  *
  * Nothing is drawn over the video player itself.
  *
+ * Marking deliberately does NOT rely on the thumbnail anchor having an `href`,
+ * because it often does not: YouTube renders the thumbnail as
+ * `<a id="thumbnail">` with no href, wrapping a `<yt-image>` (whose real <img>
+ * lives in a shadow root). Instead the video ID is read from any /watch link in
+ * the card — the title link always has one — and the badge is placed on the
+ * card's thumbnail container.
+ *
  * The signed-in account is read from the page's world through account-bridge.js.
  */
 
@@ -24,15 +31,28 @@
   const BRIDGE_RESPONSE = 'YTWM_ACCOUNT';
   const POPUP_GET_ACCOUNT = 'ytwm:getAccount';
 
-  // Thumbnail links, across feed, search, subscriptions, channel and sidebar
-  // layouts. `:has(> img)` catches layouts we have not seen; isThumbnailLink()
-  // rejects card-level wrapper anchors so a video is never marked twice.
-  const THUMBNAIL_SELECTOR = [
-    'a#thumbnail[href*="/watch?v="]',
-    'ytd-thumbnail a[href*="/watch?v="]',
-    'ytd-playlist-thumbnail a[href*="/watch?v="]',
-    'a[href*="/watch?v="]:has(> img)',
+  // One card == one video, on every surface we care about.
+  const CARD_SELECTOR = [
+    'ytd-rich-item-renderer',
+    'ytd-rich-grid-media',
+    'ytd-video-renderer',
+    'ytd-compact-video-renderer',
+    'ytd-grid-video-renderer',
+    'ytd-playlist-video-renderer',
+    'ytd-playlist-panel-video-renderer',
+    'ytd-reel-item-renderer',
+    'ytd-reel-video-renderer',
+    'yt-lockup-view-model',
   ].join(', ');
+
+  // Where the badge goes, inside a card.
+  const CARD_THUMB = 'ytd-thumbnail, ytd-playlist-thumbnail, .yt-lockup-view-model__content-image';
+
+  const ANY_VIDEO_LINK = 'a[href*="/watch?v="]';
+
+  // Fallback pass for thumbnail anchors (covers surfaces whose card we do not
+  // know about). Only used when it can name a thumbnail container.
+  const THUMBNAIL_SELECTOR = 'a#thumbnail, ytd-thumbnail a, ytd-playlist-thumbnail a';
   const THUMBNAIL_CONTAINER = 'ytd-thumbnail, ytd-playlist-thumbnail, .yt-lockup-view-model__content-image';
 
   // Feed cards. Used to recognise the muted hover-preview players, which must
@@ -92,73 +112,68 @@
     return badge;
   }
 
-  /** Does this element itself match a thumbnail-link selector? Never throws. */
-  function isThumbnailMatch(el) {
-    try {
-      return el.matches(THUMBNAIL_SELECTOR);
-    } catch (_) {
-      return false;
-    }
-  }
-
-  function containsThumbnailMatch(el) {
-    try {
-      return Boolean(el.querySelector(THUMBNAIL_SELECTOR));
-    } catch (_) {
-      return Boolean(el.querySelector('a[href*="/watch?v="]'));
-    }
-  }
-
-  function markThumbnail(link) {
-    // YouTube nests a /watch anchor inside a#thumbnail for some overlays. Only
-    // the *innermost* match gets marked — a wrapper would otherwise grow its own
-    // badge, drawn against the whole card, which is how a video ended up with
-    // two or three.
-    if (containsThumbnailMatch(link)) return false;
-
-    // Ignore title links: they point at /watch but hold no image and sit
-    // outside any thumbnail container.
-    const knownThumb = link.id === 'thumbnail' || Boolean(link.closest(THUMBNAIL_CONTAINER));
-    if (!knownThumb && !link.querySelector('img')) return false;
-
-    const id = extractVideoId(link.getAttribute('href'));
-    if (!id || !watchedSet.has(id)) return false;
-
-    const container = link.closest(THUMBNAIL_CONTAINER) || link;
-
-    // Exactly one badge per thumbnail, and re-add it if YouTube re-rendered the
-    // thumbnail and dropped it.
+  /** Put exactly one badge on a thumbnail container. Re-adds if it was wiped. */
+  function markContainer(container, link) {
+    if (!container) return false;
     if (container.querySelector(`.${BADGE_CLASS}`)) {
-      link.setAttribute(MARK_ATTR, 'true');
+      if (link) link.setAttribute(MARK_ATTR, 'true');
       return false;
     }
-
     container.classList.add(THUMB_CLASS);
     container.appendChild(buildBadge());
-    link.setAttribute(MARK_ATTR, 'true');
+    if (link) link.setAttribute(MARK_ATTR, 'true');
     return true;
+  }
+
+  /**
+   * Pass 1 — the reliable one. For each card, take the video ID from any link
+   * that carries an href (the thumbnail anchor often does not, the title link
+   * always does) and badge the card's thumbnail.
+   */
+  function scanCards(scopeNode) {
+    let marked = 0;
+    for (const card of scopeNode.querySelectorAll(CARD_SELECTOR)) {
+      const link = card.querySelector(ANY_VIDEO_LINK);
+      if (!link) continue;
+
+      const id = extractVideoId(link.getAttribute('href'));
+      if (!id || !watchedSet.has(id)) continue;
+
+      if (markContainer(card.querySelector(CARD_THUMB), link)) marked += 1;
+    }
+    return marked;
+  }
+
+  /**
+   * Pass 2 — for surfaces without a card we recognise. Only the innermost
+   * matching anchor is used, and only when it sits in a known thumbnail
+   * container, so a video can never pick up a second badge.
+   */
+  function scanAnchors(scopeNode) {
+    let marked = 0;
+    let links;
+    try {
+      links = scopeNode.querySelectorAll(THUMBNAIL_SELECTOR);
+    } catch (_) {
+      return 0;
+    }
+
+    for (const link of links) {
+      const id = extractVideoId(link.getAttribute('href'));
+      if (!id || !watchedSet.has(id)) continue;
+
+      const container = link.closest(THUMBNAIL_CONTAINER);
+      if (!container) continue;
+
+      if (markContainer(container, link)) marked += 1;
+    }
+    return marked;
   }
 
   function scan(root) {
     if (watchedSet.size === 0 || !shouldMark()) return;
     const scopeNode = root && root.querySelectorAll ? root : document;
-
-    let links;
-    try {
-      links = scopeNode.querySelectorAll(THUMBNAIL_SELECTOR);
-    } catch (err) {
-      console.error('[watched-marker] thumbnail selector failed', err);
-      return;
-    }
-
-    let marked = 0;
-    for (const link of links) {
-      try {
-        if (markThumbnail(link)) marked += 1;
-      } catch (err) {
-        console.error('[watched-marker] failed to mark', link, err);
-      }
-    }
+    const marked = scanCards(scopeNode) + scanAnchors(scopeNode);
     if (marked > 0) console.debug(`[watched-marker] marked ${marked} thumbnail(s)`);
   }
 
@@ -369,6 +384,22 @@
     }).observe(document.body, { childList: true, subtree: true });
   }
 
+  /** Startup line: tells us exactly why marking is or is not happening. */
+  function logStatus() {
+    let cards = 0;
+    let links = 0;
+    try {
+      cards = document.querySelectorAll(CARD_SELECTOR).length;
+      links = document.querySelectorAll(ANY_VIDEO_LINK).length;
+    } catch (_) {
+      cards = -1;
+    }
+    console.info(
+      `[watched-marker] active — ${watchedSet.size} watched id(s), scope "${scope}", `
+      + `marking ${shouldMark() ? 'ON' : 'OFF'}, ${cards} card(s) and ${links} /watch link(s) on this page`
+    );
+  }
+
   async function init() {
     const stored = await api.storage.local.get([IDS_KEY, BOUND_KEY, SCOPE_KEY]);
     applyStoredIds(stored[IDS_KEY]);
@@ -378,17 +409,7 @@
     await refreshAccount();
     refreshMarks();
     recordIfAlreadyPlaying();
-
-    let onPage = 0;
-    try {
-      onPage = document.querySelectorAll(THUMBNAIL_SELECTOR).length;
-    } catch (_) {
-      onPage = -1;
-    }
-    console.info(
-      `[watched-marker] active — ${watchedSet.size} watched id(s), scope "${scope}", `
-      + `marking ${shouldMark() ? 'ON' : 'OFF'}, ${onPage} thumbnail link(s) found on this page`
-    );
+    logStatus();
 
     startObserver();
     document.addEventListener('play', onVideoPlay, true);
