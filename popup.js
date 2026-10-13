@@ -1,6 +1,6 @@
-// Popup: the small control panel. The actual import happens on import.html,
-// opened in a tab, because a file picker closes a browser-action popup on
-// Firefox/Zen (and sometimes Chrome), which would cancel the import.
+// Popup: the control panel. The actual import happens on import.html, opened in
+// a tab, because a file picker closes a browser-action popup on Firefox/Zen
+// (and sometimes Chrome), which would cancel the import.
 
 import {
   api,
@@ -8,8 +8,12 @@ import {
   BOUND_KEY,
   SCOPE_KEY,
   REPORT_KEY,
+  HIDE_PROGRESS_KEY,
+  THEME_KEY,
   readStoredIds,
   accountName,
+  setTheme,
+  initTheme,
 } from './history.js';
 
 const els = {
@@ -18,6 +22,8 @@ const els = {
   currentLabel: document.getElementById('currentLabel'),
   scopeSingle: document.getElementById('scopeSingle'),
   scopeAll: document.getElementById('scopeAll'),
+  hideProgress: document.getElementById('hideProgress'),
+  theme: document.getElementById('theme'),
   openImport: document.getElementById('openImport'),
   clear: document.getElementById('clear'),
   message: document.getElementById('message'),
@@ -47,10 +53,11 @@ async function detectActiveAccount() {
 }
 
 async function refresh() {
-  const [ids, boundStored, scopeStored, active] = await Promise.all([
+  const [ids, boundStored, scopeStored, settings, active] = await Promise.all([
     readStoredIds(),
     api.storage.local.get(BOUND_KEY),
     api.storage.local.get(SCOPE_KEY),
+    api.storage.local.get([HIDE_PROGRESS_KEY, THEME_KEY]),
     detectActiveAccount(),
   ]);
 
@@ -71,6 +78,9 @@ async function refresh() {
   els.scopeSingle.checked = scope === 'single';
   els.scopeAll.checked = scope === 'all';
 
+  els.hideProgress.checked = settings[HIDE_PROGRESS_KEY] !== false;
+  els.theme.value = setTheme(settings[THEME_KEY]);
+
   setMessage(mismatch && scope === 'single'
     ? 'Signed in as a different account — videos are not being marked.'
     : '');
@@ -82,6 +92,18 @@ async function onScopeChange() {
   setMessage(scope === 'all'
     ? 'Marking watched videos in every signed-in account.'
     : 'Marking watched videos in the imported account only.');
+}
+
+async function onHideProgressChange() {
+  await api.storage.local.set({ [HIDE_PROGRESS_KEY]: els.hideProgress.checked });
+  setMessage(els.hideProgress.checked
+    ? "Hiding YouTube's own watched bar on marked videos."
+    : "Showing YouTube's own watched bar again.");
+}
+
+async function onThemeChange() {
+  const preference = setTheme(els.theme.value);
+  await api.storage.local.set({ [THEME_KEY]: preference });
 }
 
 function onOpenImport() {
@@ -100,4 +122,8 @@ els.openImport.addEventListener('click', onOpenImport);
 els.clear.addEventListener('click', onClear);
 els.scopeSingle.addEventListener('change', onScopeChange);
 els.scopeAll.addEventListener('change', onScopeChange);
+els.hideProgress.addEventListener('change', onHideProgressChange);
+els.theme.addEventListener('change', onThemeChange);
+
+initTheme();
 refresh();

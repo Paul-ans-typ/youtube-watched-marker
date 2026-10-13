@@ -1,10 +1,44 @@
+/*
+ * Theming. `data-theme` is written onto <html> by history.js:
+ *   "system" (default) -> resolved by the prefers-color-scheme media query
+ *   "light" / "dark"   -> explicit, overrides the media query
+ *
+ * The dark palette is written twice because plain CSS cannot share one block
+ * between a media query and a selector. Keep the two in sync.
+ */
 :root {
+  color-scheme: light;
   --bg: #ffffff;
+  --surface: #f2f2f2;
   --fg: #0f0f0f;
   --muted: #606060;
+  --border: #d9d9d9;
   --accent: #cc0000;
   --accent-soft: #fff2f2;
-  --border: #d9d9d9;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #1b1b1d;
+    --surface: #2a2a2d;
+    --fg: #f1f1f1;
+    --muted: #a2a2a8;
+    --border: #414146;
+    --accent: #ff4d4d;
+    --accent-soft: #3a2020;
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #1b1b1d;
+  --surface: #2a2a2d;
+  --fg: #f1f1f1;
+  --muted: #a2a2a8;
+  --border: #414146;
+  --accent: #ff4d4d;
+  --accent-soft: #3a2020;
 }
 
 * {
@@ -12,7 +46,7 @@
 }
 
 body {
-  width: 300px;
+  width: 320px;
   margin: 0;
   padding: 16px;
   font: 13px/1.4 Roboto, Arial, sans-serif;
@@ -51,18 +85,30 @@ h1 {
   color: var(--muted);
 }
 
-.account {
+.account,
+.settings {
   margin-bottom: 12px;
   padding: 10px 12px;
   border: 1px solid var(--border);
   border-radius: 8px;
 }
 
+.settings {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .row {
   display: flex;
+  align-items: center;
   justify-content: space-between;
   gap: 8px;
   margin-bottom: 4px;
+}
+
+.settings .row {
+  margin-bottom: 0;
 }
 
 .row-label {
@@ -79,6 +125,25 @@ h1 {
 
 .row-value.mismatch {
   color: var(--accent);
+}
+
+.switch input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+select {
+  padding: 4px 6px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
 }
 
 .scope {
@@ -113,9 +178,9 @@ button {
   padding: 10px;
   font: inherit;
   font-weight: 600;
-  color: #ffffff;
-  background: #3a3a3a;
-  border: 0;
+  color: var(--fg);
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: 8px;
   cursor: pointer;
 }
@@ -126,12 +191,14 @@ button:disabled {
 }
 
 button.primary {
+  color: #ffffff;
   background: var(--accent);
+  border-color: transparent;
 }
 
 button.danger {
-  color: #333333;
-  background: #e8e8e8;
+  color: var(--muted);
+  background: transparent;
 }
 
 .message {
@@ -139,6 +206,10 @@ button.danger {
   margin: 10px 0 0;
   font-size: 12px;
   color: var(--muted);
+}
+
+.message.error {
+  color: var(--accent);
 }
 
 .hint {
@@ -149,10 +220,6 @@ button.danger {
 }
 
 .hint strong {
-  color: var(--accent);
-}
-
-.message.error {
   color: var(--accent);
 }
 
@@ -176,6 +243,10 @@ body.page .subtitle {
 
 body.page .row-value {
   max-width: 60%;
+}
+
+body.page select {
+  font-size: 13px;
 }
 
 .dropzone {
@@ -225,7 +296,7 @@ body.page .row-value {
 .progress-bar {
   height: 6px;
   overflow: hidden;
-  background: #eeeeee;
+  background: var(--surface);
   border-radius: 999px;
 }
 
@@ -258,7 +329,7 @@ body.page .row-value {
 .help code {
   padding: 1px 4px;
   font-size: 12px;
-  background: #f2f2f2;
+  background: var(--surface);
   border-radius: 4px;
 }
 

@@ -26,6 +26,7 @@
   const BOUND_KEY = 'account';
   const SCOPE_KEY = 'scope';
   const REPORT_KEY = 'currentAccount';
+  const HIDE_PROGRESS_KEY = 'hideProgress';
 
   const BRIDGE_REQUEST = 'YTWM_GET_ACCOUNT';
   const BRIDGE_RESPONSE = 'YTWM_ACCOUNT';
@@ -83,8 +84,10 @@
   ].join(', ');
 
   const THUMB_CLASS = 'yt-watched-thumb';
+  const CARD_CLASS = 'yt-watched-card';
   const BADGE_CLASS = 'yt-watched-badge';
   const MARK_ATTR = 'data-custom-watched';
+  const HIDE_PROGRESS_CLASS = 'yt-watched-hide-progress';
 
   const VIDEO_ID_IN_URL = /[?&]v=([a-zA-Z0-9_-]{11})/;
   const VIDEO_ID = /^[a-zA-Z0-9_-]{11}$/;
@@ -98,6 +101,7 @@
   let scope = 'single';      // 'single' | 'all'
   let currentAccount = null; // account signed in right now
   let marksEnabled = null;   // last applied marking decision
+  let hideProgress = true;   // hide YouTube's own watched-progress bar
 
   let playTimer = null;
   let pendingId = null;
@@ -126,6 +130,12 @@
   /** Put exactly one badge on a thumbnail container. Re-adds if it was wiped. */
   function markContainer(container, link) {
     if (!container) return false;
+
+    // Tag the whole card too: YouTube's own watched-progress bar can sit beside
+    // the thumbnail rather than inside it, so hiding it is scoped to the card.
+    const card = (link && link.closest(CARD_SELECTOR)) || container.closest(CARD_SELECTOR);
+    if (card) card.classList.add(CARD_CLASS);
+
     if (container.querySelector(`.${BADGE_CLASS}`)) {
       if (link) link.setAttribute(MARK_ATTR, 'true');
       return false;
@@ -214,7 +224,13 @@
   function clearMarks() {
     for (const badge of document.querySelectorAll(`.${BADGE_CLASS}`)) badge.remove();
     for (const el of document.querySelectorAll(`.${THUMB_CLASS}`)) el.classList.remove(THUMB_CLASS);
+    for (const el of document.querySelectorAll(`.${CARD_CLASS}`)) el.classList.remove(CARD_CLASS);
     for (const el of document.querySelectorAll(`[${MARK_ATTR}]`)) el.removeAttribute(MARK_ATTR);
+  }
+
+  /** Hide/show YouTube's own resume-playback bar on marked videos. */
+  function applyHideProgress() {
+    document.documentElement.classList.toggle(HIDE_PROGRESS_CLASS, hideProgress);
   }
 
   /* --------------------------------------------------------------- accounts */
@@ -456,10 +472,12 @@
     // in the tab (a stale tab after reloading the add-on has no marker).
     document.documentElement.setAttribute('data-watched-marker', 'active');
 
-    const stored = await api.storage.local.get([IDS_KEY, BOUND_KEY, SCOPE_KEY]);
+    const stored = await api.storage.local.get([IDS_KEY, BOUND_KEY, SCOPE_KEY, HIDE_PROGRESS_KEY]);
     applyStoredIds(stored[IDS_KEY]);
     boundAccount = stored[BOUND_KEY] || null;
     scope = stored[SCOPE_KEY] === 'all' ? 'all' : 'single';
+    hideProgress = stored[HIDE_PROGRESS_KEY] !== false;
+    applyHideProgress();
 
     await refreshAccount();
     refreshMarks();
@@ -483,6 +501,10 @@
     // Reflect imports / scope / binding changes made elsewhere, live.
     api.storage.onChanged.addListener((changes, area) => {
       if (area !== 'local') return;
+      if (changes[HIDE_PROGRESS_KEY]) {
+        hideProgress = changes[HIDE_PROGRESS_KEY].newValue !== false;
+        applyHideProgress();
+      }
       if (!changes[IDS_KEY] && !changes[BOUND_KEY] && !changes[SCOPE_KEY]) return;
       if (changes[IDS_KEY]) applyStoredIds(changes[IDS_KEY].newValue);
       if (changes[BOUND_KEY]) boundAccount = changes[BOUND_KEY].newValue || null;

@@ -9,6 +9,7 @@ import {
   mergeAndStore,
   extractIdsFromFile,
   accountName,
+  initTheme,
 } from './history.js';
 
 const els = {
@@ -132,4 +133,5 @@ els.dropzone.addEventListener('drop', (event) => {
   if (file) importFile(file);
 });
 
+initTheme();
 refreshSummary();

@@ -101,6 +101,14 @@ imported one (in the default scope).
 
 **Clear database** removes the stored IDs and the account binding.
 
+### 5. Other settings
+
+- **Hide YouTube's watched bar** — on by default. Removes YouTube's own red
+  progress line from videos the extension has marked, so the WATCHED badge is
+  the single indicator. Turn it off to leave YouTube's bar alone.
+- **Theme** — *System* (default; follows the browser/OS), *Light* or *Dark*.
+  Applies to the popup and the import page.
+
 ## How it works
 
 | File | Role |

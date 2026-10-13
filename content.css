@@ -39,3 +39,23 @@
   font-size: 12px;
   line-height: 1;
 }
+
+/*
+ * YouTube's own watched bar — the red line it draws along the bottom of a
+ * partially watched video. It lives in different elements depending on the
+ * layout, and may sit beside the thumbnail rather than inside it, so this is
+ * scoped to the marked card as well as the marked thumbnail.
+ *
+ * Only active while the popup toggle is on (the class is set on <html>).
+ */
+html.yt-watched-hide-progress :is(.yt-watched-card, .yt-watched-thumb)
+  :is(
+    ytd-thumbnail-overlay-resume-playback-renderer,
+    ytd-thumbnail-overlay-progress-bar-view-model,
+    yt-thumbnail-overlay-progress-bar-view-model,
+    yt-thumbnail-overlay-resume-playback-view-model,
+    [class*="resume-playback" i],
+    [class*="WatchedProgressBar" i]
+  ) {
+  display: none !important;
+}

@@ -7,6 +7,28 @@ export const IDS_KEY = 'watchedIds';
 export const BOUND_KEY = 'account';
 export const SCOPE_KEY = 'scope';
 export const REPORT_KEY = 'currentAccount';
+export const HIDE_PROGRESS_KEY = 'hideProgress';
+export const THEME_KEY = 'theme';
+
+/**
+ * Theme preference: "system" (default, follows the browser/OS), "light" or
+ * "dark". Written onto <html> as data-theme; the stylesheet resolves "system"
+ * with a prefers-color-scheme media query.
+ */
+export function setTheme(preference) {
+  const value = preference === 'light' || preference === 'dark' ? preference : 'system';
+  document.documentElement.dataset.theme = value;
+  return value;
+}
+
+/** Apply the stored theme now, and keep up with changes made in the popup. */
+export async function initTheme() {
+  const stored = await api.storage.local.get(THEME_KEY);
+  setTheme(stored[THEME_KEY]);
+  api.storage.onChanged.addListener((changes, area) => {
+    if (area === 'local' && changes[THEME_KEY]) setTheme(changes[THEME_KEY].newValue);
+  });
+}
 
 // Matches "...watch?v=XXXXXXXXXXX" and captures the 11-char ID.
 const VIDEO_ID_IN_URL = /watch\?v=([a-zA-Z0-9_-]{11})/;
