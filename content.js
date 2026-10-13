@@ -45,8 +45,19 @@
     'yt-lockup-view-model',
   ].join(', ');
 
-  // Where the badge goes, inside a card.
-  const CARD_THUMB = 'ytd-thumbnail, ytd-playlist-thumbnail, .yt-lockup-view-model__content-image';
+  // Where the badge goes, inside a card. Tried in order. Newer feed layouts have
+  // no ytd-thumbnail at all, so the last resort (thumbnailTarget) is whatever
+  // wraps the thumbnail image.
+  const CARD_THUMB_CANDIDATES = [
+    'ytd-thumbnail',
+    'ytd-playlist-thumbnail',
+    '.yt-lockup-view-model__content-image',
+    'yt-thumbnail-view-model',
+    'yt-collection-thumbnail-view-model',
+    'yt-tile-thumbnail-view-model',
+    '[class*="thumbnail-view-model"]',
+    '[class*="content-image"]',
+  ];
 
   const ANY_VIDEO_LINK = 'a[href*="/watch?v="]';
 
@@ -126,6 +137,29 @@
   }
 
   /**
+   * Where to put the badge inside a card. Named containers first, then whatever
+   * wraps the thumbnail image. That last fallback is the important one: current
+   * feed cards contain none of the classic thumbnail elements, only an anchor
+   * around a <yt-image>, so a fixed list of container names finds nothing.
+   */
+  function thumbnailTarget(card, link) {
+    for (const selector of CARD_THUMB_CANDIDATES) {
+      const el = card.querySelector(selector);
+      if (el) return el;
+    }
+
+    // `yt-image` is matched as well as `img`: when the real <img> lives in a
+    // shadow root, the host element is the best handle we have.
+    const image = card.querySelector('img, yt-image, picture');
+    if (image) {
+      const anchor = image.closest('a');
+      return anchor || image;
+    }
+
+    return link || null;
+  }
+
+  /**
    * Pass 1 — the reliable one. For each card, take the video ID from any link
    * that carries an href (the thumbnail anchor often does not, the title link
    * always does) and badge the card's thumbnail.
@@ -139,7 +173,7 @@
       const id = extractVideoId(link.getAttribute('href'));
       if (!id || !watchedSet.has(id)) continue;
 
-      if (markContainer(card.querySelector(CARD_THUMB), link)) marked += 1;
+      if (markContainer(thumbnailTarget(card, link), link)) marked += 1;
     }
     return marked;
   }
@@ -394,10 +428,24 @@
     } catch (_) {
       cards = -1;
     }
+
+    // Report what the first card resolved to, so a mismatch is visible at once.
+    let target = 'n/a';
+    try {
+      const firstCard = document.querySelector(CARD_SELECTOR);
+      if (firstCard) {
+        const el = thumbnailTarget(firstCard, firstCard.querySelector(ANY_VIDEO_LINK));
+        target = el ? el.tagName.toLowerCase() : 'none';
+      }
+    } catch (_) {
+      target = 'error';
+    }
+
     console.info(
       `[watched-marker] active — ${watchedSet.size} watched id(s), scope "${scope}", `
       + `marking ${shouldMark() ? 'ON' : 'OFF'}, ${cards} card(s) and ${links} /watch link(s) on this page`
     );
+    console.info(`[watched-marker] badge target on the first card: <${target}>`);
     if (cards === 0) {
       console.warn('[watched-marker] no known video cards on this page — see README for the diagnostic snippet');
     }
